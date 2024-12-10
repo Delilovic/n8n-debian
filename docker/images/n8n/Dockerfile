@@ -1,5 +1,5 @@
 ARG NODE_VERSION=20
-FROM n8nio/base:${NODE_VERSION}-bullseye
+FROM delilovic/n8n_base:${NODE_VERSION}-bullseye
 
 ARG N8N_VERSION
 RUN if [ -z "$N8N_VERSION" ] ; then echo "The N8N_VERSION argument is missing!" ; exit 1; fi
