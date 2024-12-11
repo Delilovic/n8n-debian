@@ -13,9 +13,7 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install git and other OS dependencies
-RUN apt-get update && \
-	apt-get install -y --no-install-recommends git openssh-client graphicsmagick tini tzdata ca-certificates jq && \
-	apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client graphicsmagick tini tzdata ca-certificates jq
 
 # Update npm and install full-icu
 COPY .npmrc /usr/local/etc/npmrc
