@@ -1,8 +1,8 @@
 import { GlobalConfig } from '@n8n/config';
+import { Container } from '@n8n/di';
 import convict from 'convict';
 import { InstanceSettings } from 'n8n-core';
 import path from 'path';
-import { Container } from 'typedi';
 
 import { ensureStringArray } from './utils';
 
@@ -137,13 +137,6 @@ export const schema = {
 		default: '',
 		env: 'N8N_EDITOR_BASE_URL',
 		doc: 'Public URL where the editor is accessible. Also used for emails sent from n8n.',
-	},
-
-	workflowTagsDisabled: {
-		format: Boolean,
-		default: false,
-		env: 'N8N_WORKFLOW_TAGS_DISABLED',
-		doc: 'Disable workflow tags.',
 	},
 
 	userManagement: {
@@ -338,15 +331,6 @@ export const schema = {
 			format: Boolean,
 			default: false,
 			env: 'N8N_AI_ENABLED',
-		},
-	},
-
-	aiAssistant: {
-		baseUrl: {
-			doc: 'Base URL of the AI assistant service',
-			format: String,
-			default: '',
-			env: 'N8N_AI_ASSISTANT_BASE_URL',
 		},
 	},
 
