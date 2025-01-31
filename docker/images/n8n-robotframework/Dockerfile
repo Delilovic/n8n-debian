@@ -7,8 +7,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 python3-pip curl && \
     pip3 install --no-cache-dir \
         robotframework==7.2 \
-        robotframework-browser==19.3.0 \
-        robotframework-jsonlibrary==0.5 && \
+        robotframework-browser==19.3.0 && \
     npx playwright install-deps && \
     rfbrowser init
 
