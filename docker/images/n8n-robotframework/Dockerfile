@@ -5,11 +5,17 @@ USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 python3-pip curl && \
-    pip3 install --no-cache-dir robotframework robotframework-browser && \
+    pip3 install --no-cache-dir \
+        robotframework==7.2 \
+        robotframework-browser==19.3.0 \
+        robotframework-jsonlibrary==0.5 && \
     npx playwright install-deps && \
     rfbrowser init
 
-# Add any additional npm libraries here if required
-RUN npm install -g weaviate-client @mozilla/readability @postlight/parser
+# Install Node.js packages
+RUN npm install -g \
+        weaviate-client@3.3.6 \
+        @mozilla/readability@0.5.0 \
+        @postlight/parser@2.2.3
 
 USER node
