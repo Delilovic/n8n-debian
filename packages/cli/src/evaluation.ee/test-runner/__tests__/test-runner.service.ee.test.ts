@@ -18,8 +18,9 @@ import type { TestRunRepository } from '@/databases/repositories/test-run.reposi
 import type { WorkflowRepository } from '@/databases/repositories/workflow.repository';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
 import { NodeTypes } from '@/node-types';
+import type { Telemetry } from '@/telemetry';
 import type { WorkflowRunner } from '@/workflow-runner';
-import { mockInstance } from '@test/mocking';
+import { mockInstance, mockLogger } from '@test/mocking';
 import { mockNodeTypesData } from '@test-integration/utils/node-types-data';
 
 import { TestRunnerService } from '../test-runner.service.ee';
@@ -129,6 +130,16 @@ function mockEvaluationExecutionData(metrics: Record<string, GenericValue>) {
 	});
 }
 
+const errorReporter = mock<ErrorReporter>();
+const logger = mockLogger();
+const telemetry = mock<Telemetry>();
+
+async function mockLongExecutionPromise(data: IRun, delay: number): Promise<IRun> {
+	return await new Promise((resolve) => {
+		setTimeout(() => resolve(data), delay);
+	});
+}
+
 describe('TestRunnerService', () => {
 	const executionRepository = mock<ExecutionRepository>();
 	const workflowRepository = mock<WorkflowRepository>();
@@ -165,17 +176,15 @@ describe('TestRunnerService', () => {
 	});
 
 	afterEach(() => {
-		activeExecutions.getPostExecutePromise.mockClear();
-		workflowRunner.run.mockClear();
-		testRunRepository.createTestRun.mockClear();
-		testRunRepository.markAsRunning.mockClear();
-		testRunRepository.markAsCompleted.mockClear();
+		jest.resetAllMocks();
 		testRunRepository.incrementFailed.mockClear();
 		testRunRepository.incrementPassed.mockClear();
 	});
 
 	test('should create an instance of TestRunnerService', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -183,7 +192,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		expect(testRunnerService).toBeInstanceOf(TestRunnerService);
@@ -191,6 +200,8 @@ describe('TestRunnerService', () => {
 
 	test('should create and run test cases from past executions', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -198,7 +209,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -229,6 +240,8 @@ describe('TestRunnerService', () => {
 
 	test('should run both workflow under test and evaluation workflow', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -236,7 +249,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -330,6 +343,8 @@ describe('TestRunnerService', () => {
 
 	test('should properly count passed and failed executions', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -337,7 +352,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -388,6 +403,8 @@ describe('TestRunnerService', () => {
 
 	test('should properly count failed test executions', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -395,7 +412,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -442,6 +459,8 @@ describe('TestRunnerService', () => {
 
 	test('should properly count failed evaluations', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -449,7 +468,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -500,6 +519,8 @@ describe('TestRunnerService', () => {
 
 	test('should specify correct start nodes when running workflow under test', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -507,7 +528,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
@@ -574,6 +595,8 @@ describe('TestRunnerService', () => {
 
 	test('should properly choose trigger and start nodes', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -581,7 +604,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		const startNodesData = (testRunnerService as any).getStartNodesData(
@@ -599,6 +622,8 @@ describe('TestRunnerService', () => {
 
 	test('should properly choose trigger and start nodes 2', async () => {
 		const testRunnerService = new TestRunnerService(
+			logger,
+			telemetry,
 			workflowRepository,
 			workflowRunner,
 			executionRepository,
@@ -606,7 +631,7 @@ describe('TestRunnerService', () => {
 			testRunRepository,
 			testMetricRepository,
 			mockNodeTypes,
-			mock<ErrorReporter>(),
+			errorReporter,
 		);
 
 		const startNodesData = (testRunnerService as any).getStartNodesData(
@@ -619,6 +644,90 @@ describe('TestRunnerService', () => {
 			triggerToStartFrom: expect.objectContaining({
 				name: 'When chat message received',
 			}),
+		});
+	});
+
+	describe('Test Run cancellation', () => {
+		beforeAll(() => {
+			jest.useFakeTimers();
+		});
+
+		test('should cancel test run', async () => {
+			const testRunnerService = new TestRunnerService(
+				logger,
+				telemetry,
+				workflowRepository,
+				workflowRunner,
+				executionRepository,
+				activeExecutions,
+				testRunRepository,
+				testMetricRepository,
+				mockNodeTypes,
+				mock<ErrorReporter>(),
+			);
+
+			workflowRepository.findById.calledWith('workflow-under-test-id').mockResolvedValueOnce({
+				id: 'workflow-under-test-id',
+				...wfUnderTestJson,
+			});
+
+			workflowRepository.findById.calledWith('evaluation-workflow-id').mockResolvedValueOnce({
+				id: 'evaluation-workflow-id',
+				...wfEvaluationJson,
+			});
+
+			workflowRunner.run.mockResolvedValueOnce('some-execution-id');
+			workflowRunner.run.mockResolvedValueOnce('some-execution-id-2');
+			workflowRunner.run.mockResolvedValueOnce('some-execution-id-3');
+			workflowRunner.run.mockResolvedValueOnce('some-execution-id-4');
+
+			// Mock long execution of workflow under test
+			activeExecutions.getPostExecutePromise
+				.calledWith('some-execution-id')
+				.mockReturnValue(mockLongExecutionPromise(mockExecutionData(), 1000));
+
+			activeExecutions.getPostExecutePromise
+				.calledWith('some-execution-id-3')
+				.mockReturnValue(mockLongExecutionPromise(mockExecutionData(), 1000));
+
+			// Mock executions of evaluation workflow
+			activeExecutions.getPostExecutePromise
+				.calledWith('some-execution-id-2')
+				.mockReturnValue(
+					mockLongExecutionPromise(mockEvaluationExecutionData({ metric1: 1, metric2: 0 }), 1000),
+				);
+
+			activeExecutions.getPostExecutePromise
+				.calledWith('some-execution-id-4')
+				.mockReturnValue(
+					mockLongExecutionPromise(mockEvaluationExecutionData({ metric1: 0.5 }), 1000),
+				);
+
+			// Do not await here to test canceling
+			void testRunnerService.runTest(
+				mock<User>(),
+				mock<TestDefinition>({
+					workflowId: 'workflow-under-test-id',
+					evaluationWorkflowId: 'evaluation-workflow-id',
+					mockedNodes: [{ id: '72256d90-3a67-4e29-b032-47df4e5768af' }],
+				}),
+			);
+
+			// Simulate the moment when first test case is running (wf under test execution)
+			await jest.advanceTimersByTimeAsync(100);
+			expect(workflowRunner.run).toHaveBeenCalledTimes(1);
+
+			const abortController = (testRunnerService as any).abortControllers.get('test-run-id');
+			expect(abortController).toBeDefined();
+
+			await testRunnerService.cancelTestRun('test-run-id');
+
+			expect(abortController.signal.aborted).toBe(true);
+			expect(activeExecutions.stopExecution).toBeCalledWith('some-execution-id');
+		});
+
+		afterAll(() => {
+			jest.useRealTimers();
 		});
 	});
 });
