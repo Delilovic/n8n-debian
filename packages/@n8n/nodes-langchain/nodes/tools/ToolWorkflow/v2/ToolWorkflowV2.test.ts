@@ -14,6 +14,7 @@ import { WorkflowToolService } from './utils/WorkflowToolService';
 // Mock ISupplyDataFunctions interface
 function createMockContext(overrides?: Partial<ISupplyDataFunctions>): ISupplyDataFunctions {
 	return {
+		runIndex: 0,
 		getNodeParameter: jest.fn(),
 		getWorkflowDataProxy: jest.fn(),
 		getNode: jest.fn(),
@@ -28,6 +29,7 @@ function createMockContext(overrides?: Partial<ISupplyDataFunctions>): ISupplyDa
 		getTimezone: jest.fn(),
 		getWorkflow: jest.fn(),
 		getWorkflowStaticData: jest.fn(),
+		cloneWith: jest.fn(),
 		logger: {
 			debug: jest.fn(),
 			error: jest.fn(),
@@ -87,12 +89,25 @@ describe('WorkflowTool::WorkflowToolService', () => {
 				$execution: { id: 'exec-id' },
 				$workflow: { id: 'workflow-id' },
 			} as unknown as IWorkflowDataProxyData);
+			jest.spyOn(context, 'cloneWith').mockReturnValue(context);
 
 			const tool = await service.createTool(toolParams);
 			const result = await tool.func('test query');
 
 			expect(result).toBe(JSON.stringify(TEST_RESPONSE, null, 2));
 			expect(context.addOutputData).toHaveBeenCalled();
+
+			// Here we validate that the runIndex is correctly updated
+			expect(context.cloneWith).toHaveBeenCalledWith({
+				runIndex: 0,
+				inputData: [[{ json: { query: 'test query' } }]],
+			});
+
+			await tool.func('another query');
+			expect(context.cloneWith).toHaveBeenCalledWith({
+				runIndex: 1,
+				inputData: [[{ json: { query: 'another query' } }]],
+			});
 		});
 
 		it('should handle errors during tool execution', async () => {
@@ -107,6 +122,7 @@ describe('WorkflowTool::WorkflowToolService', () => {
 				.mockRejectedValueOnce(new Error('Workflow execution failed'));
 			jest.spyOn(context, 'addInputData').mockReturnValue({ index: 0 });
 			jest.spyOn(context, 'getNodeParameter').mockReturnValue('database');
+			jest.spyOn(context, 'cloneWith').mockReturnValue(context);
 
 			const tool = await service.createTool(toolParams);
 			const result = await tool.func('test query');
@@ -160,7 +176,12 @@ describe('WorkflowTool::WorkflowToolService', () => {
 
 			jest.spyOn(context, 'executeWorkflow').mockResolvedValueOnce(mockResponse);
 
-			const result = await service['executeSubWorkflow'](workflowInfo, items, workflowProxyMock);
+			const result = await service['executeSubWorkflow'](
+				context,
+				workflowInfo,
+				items,
+				workflowProxyMock,
+			);
 
 			expect(result.response).toBe(TEST_RESPONSE);
 			expect(result.subExecutionId).toBe('test-execution');
@@ -169,7 +190,7 @@ describe('WorkflowTool::WorkflowToolService', () => {
 		it('should throw error when workflow execution fails', async () => {
 			jest.spyOn(context, 'executeWorkflow').mockRejectedValueOnce(new Error('Execution failed'));
 
-			await expect(service['executeSubWorkflow']({}, [], {} as never)).rejects.toThrow(
+			await expect(service['executeSubWorkflow'](context, {}, [], {} as never)).rejects.toThrow(
 				NodeOperationError,
 			);
 		});
@@ -182,7 +203,7 @@ describe('WorkflowTool::WorkflowToolService', () => {
 
 			jest.spyOn(context, 'executeWorkflow').mockResolvedValueOnce(mockResponse);
 
-			await expect(service['executeSubWorkflow']({}, [], {} as never)).rejects.toThrow();
+			await expect(service['executeSubWorkflow'](context, {}, [], {} as never)).rejects.toThrow();
 		});
 	});
 
@@ -196,7 +217,12 @@ describe('WorkflowTool::WorkflowToolService', () => {
 
 			jest.spyOn(context, 'getNodeParameter').mockReturnValueOnce({ value: 'workflow-id' });
 
-			const result = await service['getSubWorkflowInfo'](source, itemIndex, workflowProxyMock);
+			const result = await service['getSubWorkflowInfo'](
+				context,
+				source,
+				itemIndex,
+				workflowProxyMock,
+			);
 
 			expect(result.workflowInfo).toHaveProperty('id', 'workflow-id');
 			expect(result.subWorkflowId).toBe('workflow-id');
@@ -212,7 +238,12 @@ describe('WorkflowTool::WorkflowToolService', () => {
 
 			jest.spyOn(context, 'getNodeParameter').mockReturnValueOnce(JSON.stringify(mockWorkflow));
 
-			const result = await service['getSubWorkflowInfo'](source, itemIndex, workflowProxyMock);
+			const result = await service['getSubWorkflowInfo'](
+				context,
+				source,
+				itemIndex,
+				workflowProxyMock,
+			);
 
 			expect(result.workflowInfo.code).toEqual(mockWorkflow);
 			expect(result.subWorkflowId).toBe('proxy-id');
@@ -228,7 +259,7 @@ describe('WorkflowTool::WorkflowToolService', () => {
 			jest.spyOn(context, 'getNodeParameter').mockReturnValueOnce('invalid json');
 
 			await expect(
-				service['getSubWorkflowInfo'](source, itemIndex, workflowProxyMock),
+				service['getSubWorkflowInfo'](context, source, itemIndex, workflowProxyMock),
 			).rejects.toThrow(NodeOperationError);
 		});
 	});

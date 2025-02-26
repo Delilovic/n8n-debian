@@ -1,6 +1,5 @@
 import type { Component } from 'vue';
 import type { NotificationOptions as ElementNotificationOptions } from 'element-plus';
-import type { Connection } from '@jsplumb/core';
 import type {
 	BannerName,
 	FrontendSettings,
@@ -54,6 +53,7 @@ import type {
 	REGULAR_NODE_CREATOR_VIEW,
 	AI_OTHERS_NODE_CREATOR_VIEW,
 	ROLE,
+	AI_UNCATEGORIZED_CATEGORY,
 } from '@/constants';
 import type { BulkCommand, Undoable } from '@/models/history';
 
@@ -316,6 +316,41 @@ export interface IWorkflowDb {
 	meta?: WorkflowMetadata;
 }
 
+// For workflow list we don't need the full workflow data
+export type BaseResource = {
+	id: string;
+	name: string;
+};
+
+export type WorkflowListItem = Omit<
+	IWorkflowDb,
+	'nodes' | 'connections' | 'settings' | 'pinData' | 'versionId' | 'usedCredentials' | 'meta'
+> & {
+	resource: 'workflow';
+	parentFolder?: { id: string; name: string };
+};
+
+export type FolderShortInfo = {
+	id: string;
+	name: string;
+};
+
+export type BaseFolderItem = BaseResource & {
+	createdAt: string;
+	updatedAt: string;
+	workflowCount: number;
+	parentFolder?: FolderShortInfo;
+	homeProject?: ProjectSharingData;
+	sharedWithProjects?: ProjectSharingData[];
+	tags?: ITag[];
+};
+
+export interface FolderListItem extends BaseFolderItem {
+	resource: 'folder';
+}
+
+export type WorkflowListResource = WorkflowListItem | FolderListItem;
+
 // Identical to cli.Interfaces.ts
 export interface IWorkflowShortResponse {
 	id: string;
@@ -404,6 +439,7 @@ export interface IExecutionResponse extends IExecutionBase {
 	data?: IRunExecutionData;
 	workflowData: IWorkflowDb;
 	executedNode?: string;
+	triggerNode?: string;
 }
 
 export type ExecutionSummaryWithScopes = ExecutionSummary & { scopes: Scope[] };
@@ -740,6 +776,8 @@ export interface CreateElementBase {
 export interface NodeCreateElement extends CreateElementBase {
 	type: 'node';
 	subcategory: string;
+	resource?: string;
+	operation?: string;
 	properties: SimplifiedNodeType;
 }
 
@@ -846,6 +884,8 @@ export interface ITemplatesNode extends IVersionNode {
 
 export interface INodeMetadata {
 	parametersLastUpdatedAt?: number;
+	pinnedDataLastUpdatedAt?: number;
+	pinnedDataLastRemovedAt?: number;
 	pristine: boolean;
 }
 
@@ -886,7 +926,6 @@ export interface RootState {
 	endpointWebhook: string;
 	endpointWebhookTest: string;
 	endpointWebhookWaiting: string;
-	pushConnectionActive: boolean;
 	timezone: string;
 	executionTimeout: number;
 	maxExecutionTimeout: number;
@@ -1010,7 +1049,8 @@ export type NodeFilterType =
 	| typeof REGULAR_NODE_CREATOR_VIEW
 	| typeof TRIGGER_NODE_CREATOR_VIEW
 	| typeof AI_NODE_CREATOR_VIEW
-	| typeof AI_OTHERS_NODE_CREATOR_VIEW;
+	| typeof AI_OTHERS_NODE_CREATOR_VIEW
+	| typeof AI_UNCATEGORIZED_CATEGORY;
 
 export type NodeCreatorOpenSource =
 	| ''
@@ -1452,16 +1492,6 @@ export type ToggleNodeCreatorOptions = {
 
 export type AppliedThemeOption = 'light' | 'dark';
 export type ThemeOption = AppliedThemeOption | 'system';
-
-export type NewConnectionInfo = {
-	sourceId: string;
-	index: number;
-	eventSource: NodeCreatorOpenSource;
-	connection?: Connection;
-	nodeCreatorView?: NodeFilterType;
-	outputType?: NodeConnectionType;
-	endpointUuid?: string;
-};
 
 export type EnterpriseEditionFeatureKey =
 	| 'AdvancedExecutionFilters'

@@ -1,7 +1,7 @@
 ARG NODE_VERSION=20
 
 # 1. Use a builder step to download various dependencies
-FROM node:${NODE_VERSION}-bullseye-slim as builder
+FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
 # Install fonts
 RUN apt-get update && \
@@ -35,5 +35,5 @@ COPY --from=builder / /
 RUN rm -rf /tmp/v8-compile-cache*
 
 WORKDIR /home/node
-ENV NODE_ICU_DATA /usr/local/lib/node_modules/full-icu
+ENV NODE_ICU_DATA=/usr/local/lib/node_modules/full-icu
 EXPOSE 5678/tcp

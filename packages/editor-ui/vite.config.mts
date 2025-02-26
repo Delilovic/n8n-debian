@@ -1,9 +1,10 @@
 import vue from '@vitejs/plugin-vue';
-import { resolve } from 'path';
+import { posix as pathPosix, resolve } from 'path';
 import { defineConfig, mergeConfig } from 'vite';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import svgLoader from 'vite-svg-loader';
 
-import { vitestConfig } from '../design-system/vite.config.mts';
+import { vitestConfig } from '@n8n/vitest-config/frontend';
 import icons from 'unplugin-icons/vite';
 import iconsResolver from 'unplugin-icons/resolver';
 import components from 'unplugin-vue-components/vite';
@@ -22,7 +23,7 @@ const alias = [
 	{ find: 'stream', replacement: 'stream-browserify' },
 	{
 		find: /^n8n-design-system$/,
-		replacement: resolve(__dirname, '..', 'design-system', 'src', 'main.ts'),
+		replacement: resolve(__dirname, '..', 'design-system', 'src', 'index.ts'),
 	},
 	{
 		find: /^n8n-design-system\//,
@@ -30,11 +31,15 @@ const alias = [
 	},
 	{
 		find: /^@n8n\/chat$/,
-		replacement: resolve(__dirname, '..', '@n8n', 'chat', 'src', 'index.ts'),
+		replacement: resolve(__dirname, '..', 'frontend', '@n8n', 'chat', 'src', 'index.ts'),
 	},
 	{
 		find: /^@n8n\/chat\//,
-		replacement: resolve(__dirname, '..', '@n8n', 'chat', 'src') + '/',
+		replacement: resolve(__dirname, '..', 'frontend', '@n8n', 'chat', 'src') + '/',
+	},
+	{
+		find: /^@n8n\/composables(.+)$/,
+		replacement: resolve(__dirname, '..', 'frontend', '@n8n', 'composables', 'src$1'),
 	},
 	...['orderBy', 'camelCase', 'cloneDeep', 'startCase'].map((name) => ({
 		find: new RegExp(`^lodash.${name}$`, 'i'),
@@ -59,6 +64,18 @@ const plugins = [
 			}),
 		],
 	}),
+	viteStaticCopy({
+		targets: [
+			{
+				src: pathPosix.resolve('node_modules/web-tree-sitter/tree-sitter.wasm'),
+				dest: resolve(__dirname, 'dist'),
+			},
+			{
+				src: pathPosix.resolve('node_modules/curlconverter/dist/tree-sitter-bash.wasm'),
+				dest: resolve(__dirname, 'dist'),
+			},
+		],
+	}),
 	vue(),
 	svgLoader(),
 	legacy({
@@ -69,6 +86,7 @@ const plugins = [
 ];
 
 const { RELEASE: release } = process.env;
+const target = browserslistToEsbuild(browsers);
 
 export default mergeConfig(
 	defineConfig({
@@ -96,7 +114,12 @@ export default mergeConfig(
 		build: {
 			minify: !!release,
 			sourcemap: !!release,
-			target: browserslistToEsbuild(browsers),
+			target,
+		},
+		optimizeDeps: {
+			esbuildOptions: {
+				target,
+			},
 		},
 		worker: {
 			format: 'es',

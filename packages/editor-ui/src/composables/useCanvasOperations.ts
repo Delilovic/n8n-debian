@@ -12,6 +12,8 @@ import type {
 	IWorkflowData,
 	IWorkflowDataUpdate,
 	IWorkflowDb,
+	IWorkflowTemplate,
+	WorkflowDataWithTemplateId,
 	XYPosition,
 } from '@/Interface';
 import { useDataSchema } from '@/composables/useDataSchema';
@@ -63,7 +65,7 @@ import {
 	mapLegacyConnectionsToCanvasConnections,
 	mapLegacyConnectionToCanvasConnection,
 	parseCanvasConnectionHandleString,
-} from '@/utils/canvasUtilsV2';
+} from '@/utils/canvasUtils';
 import * as NodeViewUtils from '@/utils/nodeViewUtils';
 import {
 	CONFIGURABLE_NODE_SIZE,
@@ -96,6 +98,7 @@ import type { useRouter } from 'vue-router';
 import { useClipboard } from '@/composables/useClipboard';
 import { useUniqueNodeName } from '@/composables/useUniqueNodeName';
 import { isPresent } from '../utils/typesUtils';
+import { useProjectsStore } from '@/stores/projects.store';
 
 type AddNodeData = Partial<INodeUi> & {
 	type: string;
@@ -135,6 +138,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 	const tagsStore = useTagsStore();
 	const nodeCreatorStore = useNodeCreatorStore();
 	const executionsStore = useExecutionsStore();
+	const projectsStore = useProjectsStore();
 
 	const i18n = useI18n();
 	const toast = useToast();
@@ -193,7 +197,9 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		workflowsStore.setNodePositionById(id, newPosition);
 
 		if (trackHistory) {
-			historyStore.pushCommandToUndo(new MoveNodeCommand(node.name, oldPosition, newPosition));
+			historyStore.pushCommandToUndo(
+				new MoveNodeCommand(node.name, oldPosition, newPosition, Date.now()),
+			);
 		}
 	}
 
@@ -226,7 +232,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		workflow.renameNode(currentName, newName);
 
 		if (trackHistory) {
-			historyStore.pushCommandToUndo(new RenameNodeCommand(currentName, newName));
+			historyStore.pushCommandToUndo(new RenameNodeCommand(currentName, newName, Date.now()));
 		}
 
 		// Update also last selected node and execution data
@@ -277,18 +283,21 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 
 					if (trackHistory) {
 						historyStore.pushCommandToUndo(
-							new AddConnectionCommand([
-								{
-									node: incomingConnection.node,
-									type,
-									index: 0,
-								},
-								{
-									node: outgoingConnection.node,
-									type,
-									index: 0,
-								},
-							]),
+							new AddConnectionCommand(
+								[
+									{
+										node: incomingConnection.node,
+										type,
+										index: incomingConnection.index,
+									},
+									{
+										node: outgoingConnection.node,
+										type,
+										index: outgoingConnection.index,
+									},
+								],
+								Date.now(),
+							),
 						);
 					}
 
@@ -297,11 +306,13 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 						sourceHandle: createCanvasConnectionHandleString({
 							mode: CanvasConnectionMode.Output,
 							type,
+							index: incomingConnection.index,
 						}),
 						target: outgoingNodeId,
 						targetHandle: createCanvasConnectionHandleString({
 							mode: CanvasConnectionMode.Input,
 							type,
+							index: outgoingConnection.index,
 						}),
 					});
 				}
@@ -330,7 +341,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		workflowsStore.removeNodeById(id);
 
 		if (trackHistory) {
-			historyStore.pushCommandToUndo(new RemoveNodeCommand(node));
+			historyStore.pushCommandToUndo(new RemoveNodeCommand(node, Date.now()));
 
 			if (trackBulk) {
 				historyStore.stopRecordingUndo();
@@ -387,6 +398,10 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 
 	function setNodeActiveByName(name: string) {
 		ndvStore.activeNodeName = name;
+	}
+
+	function clearNodeActive() {
+		ndvStore.activeNodeName = null;
 	}
 
 	function setNodeParameters(id: string, parameters: Record<string, unknown>) {
@@ -604,7 +619,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		workflowsStore.addNode(nodeData);
 
 		if (options.trackHistory) {
-			historyStore.pushCommandToUndo(new AddNodeCommand(nodeData));
+			historyStore.pushCommandToUndo(new AddNodeCommand(nodeData, Date.now()));
 		}
 
 		if (!options.isAutoAdd) {
@@ -741,6 +756,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 
 	function trackAddDefaultNode(nodeData: INodeUi, options: AddNodeOptions) {
 		nodeCreatorStore.onNodeAddedToCanvas({
+			node_id: nodeData.id,
 			node_type: nodeData.type,
 			node_version: nodeData.typeVersion,
 			is_auto_add: options.isAutoAdd,
@@ -1088,6 +1104,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 			historyStore.pushCommandToUndo(
 				new AddConnectionCommand(
 					mapCanvasConnectionToLegacyConnection(sourceNode, targetNode, connection),
+					Date.now(),
 				),
 			);
 		}
@@ -1218,7 +1235,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		});
 
 		if (trackHistory) {
-			historyStore.pushCommandToUndo(new RemoveConnectionCommand(mappedConnection));
+			historyStore.pushCommandToUndo(new RemoveConnectionCommand(mappedConnection, Date.now()));
 
 			if (trackBulk) {
 				historyStore.stopRecordingUndo();
@@ -1933,6 +1950,39 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		return data;
 	}
 
+	async function toggleChatOpen(source: 'node' | 'main') {
+		const workflow = workflowsStore.getCurrentWorkflow();
+
+		workflowsStore.setPanelOpen('chat', !workflowsStore.isChatPanelOpen);
+
+		const payload = {
+			workflow_id: workflow.id,
+			button_type: source,
+		};
+
+		void externalHooks.run('nodeView.onOpenChat', payload);
+		telemetry.track('User clicked chat open button', payload);
+	}
+
+	async function importTemplate({
+		id,
+		name,
+		workflow,
+	}: {
+		id: string | number;
+		name?: string;
+		workflow: IWorkflowTemplate['workflow'] | WorkflowDataWithTemplateId;
+	}) {
+		const convertedNodes = workflow.nodes?.map(workflowsStore.convertTemplateNodeToNodeUi);
+
+		if (workflow.connections) {
+			workflowsStore.setConnections(workflow.connections);
+		}
+		await addNodes(convertedNodes ?? []);
+		await workflowsStore.getNewWorkflowData(name, projectsStore.currentProjectId);
+		workflowsStore.addToWorkflowMetadata({ templateId: `${id}` });
+	}
+
 	return {
 		lastClickPosition,
 		editableWorkflow,
@@ -1948,6 +1998,7 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		revertUpdateNodePosition,
 		setNodeActive,
 		setNodeActiveByName,
+		clearNodeActive,
 		setNodeSelected,
 		toggleNodesDisabled,
 		revertToggleNodeDisabled,
@@ -1972,11 +2023,14 @@ export function useCanvasOperations({ router }: { router: ReturnType<typeof useR
 		revalidateNodeOutputConnections,
 		isConnectionAllowed,
 		filterConnectionsByNodes,
+		connectAdjacentNodes,
 		importWorkflowData,
 		fetchWorkflowDataFromUrl,
 		resetWorkspace,
 		initializeWorkspace,
 		resolveNodeWebhook,
 		openExecution,
+		toggleChatOpen,
+		importTemplate,
 	};
 }

@@ -65,6 +65,8 @@ import { N8nIcon, N8nInput, N8nInputNumber, N8nOption, N8nSelect } from 'n8n-des
 import type { EventBus } from 'n8n-design-system/utils';
 import { createEventBus } from 'n8n-design-system/utils';
 import { useRouter } from 'vue-router';
+import { useElementSize } from '@vueuse/core';
+import { completeExpressionSyntax, isStringWithExpressionSyntax } from '@/utils/expressions';
 
 type Picker = { $emit: (arg0: string, arg1: Date) => void };
 
@@ -90,6 +92,7 @@ type Props = {
 	hideIssues?: boolean;
 	errorHighlight?: boolean;
 	isForCredential?: boolean;
+	canBeOverridden?: boolean;
 };
 
 const props = withDefaults(defineProps<Props>(), {
@@ -116,7 +119,7 @@ const emit = defineEmits<{
 const externalHooks = useExternalHooks();
 const i18n = useI18n();
 const nodeHelpers = useNodeHelpers();
-const { callDebounced } = useDebounce();
+const { debounce } = useDebounce();
 const router = useRouter();
 const workflowHelpers = useWorkflowHelpers({ router });
 const telemetry = useTelemetry();
@@ -398,6 +401,13 @@ const getIssues = computed<string[]>(() => {
 	return [];
 });
 
+const displayIssues = computed(
+	() =>
+		props.parameter.type !== 'credentialsSelect' &&
+		!isResourceLocatorParameter.value &&
+		getIssues.value.length > 0,
+);
+
 const editorType = computed<EditorType | 'json' | 'code'>(() => {
 	return getArgument<EditorType>('editor');
 });
@@ -421,17 +431,23 @@ const parameterOptions = computed<INodePropertyOptions[] | undefined>(() => {
 	return remoteParameterOptions.value;
 });
 
+const isSwitch = computed(
+	() => props.parameter.type === 'boolean' && !isModelValueExpression.value,
+);
+
+const isTextarea = computed(
+	() => props.parameter.type === 'string' && editorRows.value !== undefined,
+);
+
 const parameterInputClasses = computed(() => {
-	const classes: { [c: string]: boolean } = {
+	const classes: Record<string, boolean> = {
 		droppable: props.droppable,
 		activeDrop: props.activeDrop,
 	};
 
-	const rows = editorRows.value;
-	const isTextarea = props.parameter.type === 'string' && rows !== undefined;
-	const isSwitch = props.parameter.type === 'boolean' && !isModelValueExpression.value;
-
-	if (!isTextarea && !isSwitch) {
+	if (isSwitch.value) {
+		classes['parameter-switch'] = true;
+	} else {
 		classes['parameter-value-container'] = true;
 	}
 
@@ -722,6 +738,15 @@ function onResourceLocatorDrop(data: string) {
 	emit('drop', data);
 }
 
+function selectInput() {
+	const inputRef = inputField.value;
+	if (inputRef) {
+		if ('select' in inputRef) {
+			inputRef.select();
+		}
+	}
+}
+
 async function setFocus() {
 	if (['json'].includes(props.parameter.type) && getArgument('alwaysOpenEditWindow')) {
 		displayEditDialog();
@@ -777,9 +802,9 @@ function onTextInputChange(value: string) {
 
 	emit('textInput', parameterData);
 }
-function valueChangedDebounced(value: NodeParameterValueType | {} | Date) {
-	void callDebounced(valueChanged, { debounceTime: 100 }, value);
-}
+
+const valueChangedDebounced = debounce(valueChanged, { debounceTime: 100 });
+
 function onUpdateTextInput(value: string) {
 	valueChanged(value);
 	onTextInputChange(value);
@@ -789,17 +814,24 @@ function valueChanged(value: NodeParameterValueType | {} | Date) {
 	if (remoteParameterOptionsLoading.value) {
 		return;
 	}
-	// Only update the value if it has changed
-	const oldValue = node.value?.parameters
-		? nodeHelpers.getParameterValue(node.value?.parameters, props.parameter.name, '')
-		: undefined;
+
+	const oldValue = get(node.value, props.path);
+
 	if (oldValue !== undefined && oldValue === value) {
+		// Only update the value if it has changed
 		return;
+	}
+
+	if (!oldValue && oldValue !== undefined && isStringWithExpressionSyntax(value)) {
+		// if empty old value and updated value has an expression, add '=' prefix to switch to expression mode
+		value = '=' + value;
 	}
 
 	if (props.parameter.name === 'nodeCredentialType') {
 		activeCredentialType.value = value as string;
 	}
+
+	value = completeExpressionSyntax(value);
 
 	if (value instanceof Date) {
 		value = value.toISOString();
@@ -908,11 +940,16 @@ async function optionSelected(command: string) {
 		if (isResourceLocatorParameter.value && isResourceLocatorValue(props.modelValue)) {
 			valueChanged({ __rl: true, value, mode: props.modelValue.mode });
 		} else {
-			let newValue = typeof value !== 'undefined' ? value : null;
+			let newValue: NodeParameterValueType | {} = typeof value !== 'undefined' ? value : null;
 
 			if (props.parameter.type === 'string') {
 				// Strip the '=' from the beginning
 				newValue = modelValueString.value ? modelValueString.value.toString().substring(1) : null;
+			} else if (newValue === null) {
+				// Invalid expressions land here
+				if (['number', 'boolean'].includes(props.parameter.type)) {
+					newValue = props.parameter.default;
+				}
 			}
 			valueChanged(newValue);
 		}
@@ -971,7 +1008,39 @@ onMounted(() => {
 	});
 });
 
+const { height } = useElementSize(wrapper);
+
+const isSingleLineInput = computed(() => {
+	if (isTextarea.value && !isModelValueExpression.value) {
+		return false;
+	}
+
+	/**
+	 * There is an awkward edge case here with text boxes that automatically
+	 * adjust their row count based on their content:
+	 *
+	 * If we move the overrideButton to the options row due to going multiline,
+	 * the text area gains more width and might return to single line.
+	 * This then causes the overrideButton to move inline, creating a loop which results in flickering UI.
+	 *
+	 * To avoid this, we treat 2 rows of input as single line if we were already single line.
+	 */
+	if (isSingleLineInput.value) {
+		return height.value <= 70;
+	}
+
+	return height.value <= 35;
+});
+
+defineExpose({
+	isSingleLineInput,
+	displaysIssues: displayIssues.value,
+	focusInput: async () => await setFocus(),
+	selectInput: () => selectInput(),
+});
+
 onBeforeUnmount(() => {
+	valueChangedDebounced.cancel();
 	props.eventBus.off('optionSelected', optionSelected);
 });
 
@@ -1006,11 +1075,11 @@ watch(remoteParameterOptionsLoading, () => {
 	tempValue.value = displayValue.value as string;
 });
 
-// Focus input field when changing from fixed value to expression
+// Focus input field when changing between fixed and expression
 watch(isModelValueExpression, async (isExpression, wasExpression) => {
-	if (!props.isReadOnly && isExpression && !wasExpression) {
+	if (!props.isReadOnly && isExpression !== wasExpression) {
 		await nextTick();
-		inputField.value?.focus();
+		await setFocus();
 	}
 });
 
@@ -1048,7 +1117,16 @@ onUpdated(async () => {
 			@update:model-value="expressionUpdated"
 		></ExpressionEditModal>
 
-		<div class="parameter-input ignore-key-press-canvas" :style="parameterInputWrapperStyle">
+		<div
+			:class="[
+				'parameter-input',
+				'ignore-key-press-canvas',
+				{
+					[$style.noRightCornersInput]: canBeOverridden,
+				},
+			]"
+			:style="parameterInputWrapperStyle"
+		>
 			<ResourceLocator
 				v-if="parameter.type === 'resourceLocator'"
 				ref="resourceLocator"
@@ -1172,6 +1250,7 @@ onUpdated(async () => {
 							:is-read-only="isReadOnly"
 							:rows="editorRows"
 							fullscreen
+							fill-parent
 							@update:model-value="valueChangedDebounced"
 						/>
 					</div>
@@ -1524,11 +1603,19 @@ onUpdated(async () => {
 				<InlineExpressionTip />
 			</div>
 		</div>
-
-		<ParameterIssues
-			v-if="parameter.type !== 'credentialsSelect' && !isResourceLocatorParameter"
-			:issues="getIssues"
-		/>
+		<div
+			v-if="$slots.overrideButton"
+			:class="[
+				$style.overrideButton,
+				{
+					[$style.overrideButtonStandalone]: isSwitch,
+					[$style.overrideButtonInline]: !isSwitch,
+				},
+			]"
+		>
+			<slot name="overrideButton" />
+		</div>
+		<ParameterIssues v-if="displayIssues" :issues="getIssues" />
 	</div>
 </template>
 
@@ -1549,6 +1636,13 @@ onUpdated(async () => {
 .parameter-actions {
 	display: inline-flex;
 	align-items: center;
+}
+
+.parameter-switch {
+	display: inline-flex;
+	align-self: flex-start;
+	justify-items: center;
+	gap: var(--spacing-xs);
 }
 
 .parameter-input {
@@ -1724,5 +1818,27 @@ onUpdated(async () => {
 	box-shadow: 0 2px 6px 0 rgba(#441c17, 0.1);
 	border-bottom-left-radius: 4px;
 	border-bottom-right-radius: 4px;
+}
+
+.noRightCornersInput > * {
+	--input-border-bottom-right-radius: 0;
+	--input-border-top-right-radius: 0;
+}
+
+.overrideButton {
+	align-self: start;
+}
+
+.overrideButtonStandalone {
+	position: relative;
+	/* This is to balance for the extra margin on the switch */
+	top: -2px;
+}
+
+.overrideButtonInline {
+	> button {
+		border-top-left-radius: 0;
+		border-bottom-left-radius: 0;
+	}
 }
 </style>
